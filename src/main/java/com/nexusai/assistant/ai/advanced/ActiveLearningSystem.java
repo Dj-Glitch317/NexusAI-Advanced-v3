@@ -9,41 +9,54 @@ public class ActiveLearningSystem {
     private final Map<String, float[]> featureStore = new HashMap<>();
 
     public float calculateImportance(AdvancedLearningEngine.LearningExample ex) {
+        if (ex == null || ex.inputFeatures == null) return 0.0f;
+        
         featureStore.put(String.valueOf(ex.id), ex.inputFeatures);
         switch (strategy) {
             case BALD: return calculateBALD(ex);
             case CORE_SET: return calculateCoreSet(ex);
+            case UNCERTAINTY: return 1.0f - ex.confidence;
             default: return calculateHybrid(ex);
         }
     }
 
     private float calculateBALD(AdvancedLearningEngine.LearningExample ex) {
-        float entropy = (float) Math.log(ex.confidence + 1e-6);
-        float aleatoric = 0.1f;
-        return Math.abs(entropy - aleatoric);
+        // Principal entropy - Aleatoric uncertainty
+        float p = Math.max(1e-6f, Math.min(1.0f - 1e-6f, ex.confidence));
+        float entropy = (float) -(p * Math.log(p) + (1-p) * Math.log(1-p));
+        float aleatoric = 0.1f; // Simulated base uncertainty
+        return Math.max(0, entropy - aleatoric);
     }
 
     private float calculateCoreSet(AdvancedLearningEngine.LearningExample ex) {
-        if (featureStore.isEmpty()) return 1.0f;
-        float maxMinDist = 0;
-        for (float[] feat : featureStore.values()) {
-            float dist = cosineDistance(ex.inputFeatures, feat);
-            maxMinDist = Math.max(maxMinDist, dist);
+        if (featureStore.size() <= 1) return 1.0f;
+        float minEntryDist = Float.MAX_VALUE;
+        for (Map.Entry<String, float[]> entry : featureStore.entrySet()) {
+            if (entry.getKey().equals(String.valueOf(ex.id))) continue;
+            float dist = cosineDistance(ex.inputFeatures, entry.getValue());
+            minEntryDist = Math.min(minEntryDist, dist);
         }
-        return maxMinDist;
+        return minEntryDist; // Higher distance means more unique/important for core set
     }
 
     private float calculateHybrid(AdvancedLearningEngine.LearningExample ex) {
-        return (calculateBALD(ex) + calculateCoreSet(ex)) / 2.0f;
+        return (calculateBALD(ex) * 0.4f + calculateCoreSet(ex) * 0.6f);
     }
 
     private float cosineDistance(float[] a, float[] b) {
+        if (a == null || b == null || a.length != b.length) return 1.0f;
         float dot = 0, normA = 0, normB = 0;
         for (int i = 0; i < a.length; i++) {
             dot += a[i] * b[i];
             normA += a[i] * a[i];
             normB += b[i] * b[i];
         }
-        return 1.0f - (dot / (float) (Math.sqrt(normA) * Math.sqrt(normB) + 1e-6));
+        float denominator = (float) (Math.sqrt(normA) * Math.sqrt(normB));
+        if (denominator < 1e-8f) return 1.0f;
+        return 1.0f - (dot / denominator);
+    }
+
+    public void setStrategy(SamplingStrategy strategy) {
+        this.strategy = strategy;
     }
 }
